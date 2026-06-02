@@ -1,0 +1,56 @@
+name: Build Windows EXE
+
+on:
+  workflow_dispatch:        # запуск вручную из вкладки Actions
+  push:
+    tags:
+      - 'v*'                # автоматически собирать релиз при пуше тега v1.0, v1.1 и т.д.
+
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: write       # нужно, чтобы прикладывать exe к релизу
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Download ffmpeg
+        shell: pwsh
+        run: |
+          $url = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
+          Invoke-WebRequest -Uri $url -OutFile ffmpeg.zip
+          Expand-Archive -Path ffmpeg.zip -DestinationPath ffmpeg_extract -Force
+          $ffmpegExe = Get-ChildItem -Path ffmpeg_extract -Recurse -Filter ffmpeg.exe | Select-Object -First 1
+          Copy-Item -Path $ffmpegExe.FullName -Destination ffmpeg.exe
+          Write-Host "ffmpeg found at: $($ffmpegExe.FullName)"
+
+      - name: Build EXE with PyInstaller
+        run: |
+          pyinstaller --onefile --windowed --name InstaReuploader --add-binary "ffmpeg.exe;." app.py
+
+      - name: Upload artifact (downloadable from Actions tab)
+        uses: actions/upload-artifact@v4
+        with:
+          name: InstaReuploader-Windows
+          path: dist/InstaReuploader.exe
+          retention-days: 30
+
+      - name: Attach to Release (only on tag push)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/InstaReuploader.exe
+          generate_release_notes: true
